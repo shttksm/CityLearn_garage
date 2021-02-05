@@ -35,8 +35,11 @@ class reward_function_ma:
 # Reward function for the single-agent (centralized) agent
 def reward_function_sa(electricity_demand):
 
-    reward_ = -np.array(electricity_demand).sum()
-    reward_ = max(0, reward_)
-    reward_ = reward_**3.0
+    # reward_ = -np.array(electricity_demand).sum()
+    # reward_ = max(0, reward_)
+    # reward_ = reward_**3.0
+    reward_ = np.array(electricity_demand).sum()
+    reward_ = min(0, reward_)
+    reward_ = reward_ ** 3.0
     
     return reward_
