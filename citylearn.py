@@ -551,6 +551,8 @@ class CityLearn(gym.Env):
             
             if self.verbose == 1:
                 print('Cumulated reward: '+str(self.cumulated_reward_episode))
+                # modified by Shota Takeshima
+                print("Cost score: " + str(self.cost()))
             
         return is_terminal
     
