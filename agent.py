@@ -17,211 +17,33 @@ from sklearn.ensemble import GradientBoostingRegressor
 import time
 import math
 
+# set the path so that we could read created modules
+import sys
+
+file_dir = os.path.dirname(__file__)
+sys.path.append(file_dir)
+# organized into different classes for editing easier
+from RBC_Agent import RBC_Agent
+from model import PolicyNetwork, SoftQNetwork, RegressionBuffer
+from ReplayBuffer import ReplayBuffer
+from data_process import no_normalization, periodic_normalization, onehot_encoding, normalize, remove_feature
+
+# check cuda is available
 if torch.cuda.is_available():
     torch.set_default_tensor_type(torch.cuda.FloatTensor)
-            
-class RBC_Agent:
-    def __init__(self, actions_spaces):
-        self.actions_spaces = actions_spaces
-        self.reset_action_tracker()
-        
-    def reset_action_tracker(self):
-        self.action_tracker = []
-        
-    def select_action(self, states):
-        hour_day = states[2][2]
-        
-        # Daytime: release stored energy
-        a = [[0.0 for _ in range(len(self.actions_spaces[i].sample()))] for i in range(len(self.actions_spaces))]
-        if hour_day >= 9 and hour_day <= 21:
-            a = [[-0.08 for _ in range(len(self.actions_spaces[i].sample()))] for i in range(len(self.actions_spaces))]
-        
-        # Early nightime: store DHW and/or cooling energy
-        if (hour_day >= 1 and hour_day <= 8) or (hour_day >= 22 and hour_day <= 24):
-            a = []
-            for i in range(len(self.actions_spaces)):
-                if len(self.actions_spaces[i].sample()) == 2:
-                    a.append([0.091, 0.091])
-                else:
-                    a.append([0.091])
 
-        self.action_tracker.append(a)
-        return np.array(a)
-
-class PolicyNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, action_space, action_scaling_coef, hidden_dim=[400,300],
-                 init_w=3e-3, log_std_min=-20, log_std_max=2, epsilon = 1e-6):
-        super(PolicyNetwork, self).__init__()
-
-        self.log_std_min = log_std_min
-        self.log_std_max = log_std_max
-        self.epsilon = epsilon
-        
-        self.linear1 = nn.Linear(num_inputs, hidden_dim[0])
-        self.linear2 = nn.Linear(hidden_dim[0], hidden_dim[1])
-
-        self.mean_linear = nn.Linear(hidden_dim[1], num_actions)
-        self.log_std_linear = nn.Linear(hidden_dim[1], num_actions)
-
-        self.mean_linear.weight.data.uniform_(-init_w, init_w)
-        self.mean_linear.bias.data.uniform_(-init_w, init_w)
-
-        self.log_std_linear.weight.data.uniform_(-init_w, init_w)
-        self.log_std_linear.bias.data.uniform_(-init_w, init_w)
-
-        self.action_scale = torch.FloatTensor(
-            action_scaling_coef * (action_space.high - action_space.low) / 2.)
-        self.action_bias = torch.FloatTensor(
-            action_scaling_coef * (action_space.high + action_space.low) / 2.)
-
-    def forward(self, state):
-        x = F.relu(self.linear1(state))
-        x = F.relu(self.linear2(x))
-        mean = self.mean_linear(x)
-        log_std = self.log_std_linear(x)
-        log_std = torch.clamp(log_std, min=self.log_std_min, max=self.log_std_max)
-        return mean, log_std
-
-    def sample(self, state):
-        mean, log_std = self.forward(state)
-        std = log_std.exp()
-        normal = Normal(mean, std)
-        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
-        y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
-        log_prob = normal.log_prob(x_t)
-        # Enforcing Action Bound
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + self.epsilon)
-        log_prob = log_prob.sum(1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
-
-    def to(self, device):
-        self.action_scale = self.action_scale.to(device)
-        self.action_bias = self.action_bias.to(device)
-        return super(PolicyNetwork, self).to(device)
-    
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.buffer = []
-        self.position = 0
-    
-    def push(self, state, action, reward, next_state, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        
-        self.buffer[self.position] = (state, action, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
-    
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        state, action, reward, next_state, done = map(np.stack, zip(*batch))
-        return state, action, reward, next_state, done
-    
-    def __len__(self):
-        return len(self.buffer)
-        
-class RegressionBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.x = []
-        self.y = []
-        self.position = 0
-    
-    def push(self, variables, targets):
-        if len(self.x) < self.capacity and len(self.x)==len(self.y):
-            self.x.append(None)
-            self.y.append(None)
-        
-        self.x[self.position] = variables
-        self.y[self.position] = targets
-        self.position = (self.position + 1) % self.capacity
-    
-    def __len__(self):
-        return len(self.x)
-    
-class SoftQNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_size=[400,300], init_w=3e-3):
-        super(SoftQNetwork, self).__init__()
-        
-        self.linear1 = nn.Linear(num_inputs + num_actions, hidden_size[0])
-        self.linear2 = nn.Linear(hidden_size[0], hidden_size[1])
-        self.linear3 = nn.Linear(hidden_size[1], 1)
-        self.ln1 = nn.LayerNorm(hidden_size[0])
-        self.ln2 = nn.LayerNorm(hidden_size[1])
-        
-        self.linear3.weight.data.uniform_(-init_w, init_w)
-        self.linear3.bias.data.uniform_(-init_w, init_w)
-        
-    def forward(self, state, action):
-        x = torch.cat([state, action], 1)
-        x = self.ln1(F.relu(self.linear1(x)))
-        x = self.ln2(F.relu(self.linear2(x)))
-        x = self.linear3(x)
-        return x
-    
-
-class no_normalization:
-    def __init__(self):
-        pass
-    def __mul__(self, x):
-        return x
-        
-    def __rmul__(self, x):
-        return x
-        
-class periodic_normalization:
-    def __init__(self, x_max):
-        self.x_max = x_max
-    def __mul__(self, x):
-        x = 2 * np.pi * x / self.x_max
-        x_sin = np.sin(x)
-        x_cos = np.cos(x)
-        return np.array([(x_sin+1)/2.0, (x_cos+1)/2.0])
-    def __rmul__(self, x):
-        x = 2 * np.pi * x / self.x_max
-        x_sin = np.sin(x)
-        x_cos = np.cos(x)
-        return np.array([(x_sin+1)/2.0, (x_cos+1)/2.0])
-
-class onehot_encoding:
-    def __init__(self, classes):
-        self.classes = classes
-    def __mul__(self, x):
-        identity_mat = np.eye(len(self.classes))
-        return identity_mat[np.array(self.classes) == x][0]
-    def __rmul__(self, x):
-        identity_mat = np.eye(len(self.classes))
-        return identity_mat[np.array(self.classes) == x][0]
-    
-class normalize:
-    def __init__(self, x_min, x_max):
-        self.x_min = x_min
-        self.x_max = x_max
-    def __mul__(self, x):
-        if self.x_min == self.x_max:
-            return 0
-        else:
-            return (x - self.x_min)/(self.x_max - self.x_min)
-    def __rmul__(self, x):
-        if self.x_min == self.x_max:
-            return 0
-        else:
-            return (x - self.x_min)/(self.x_max - self.x_min)
-        
-class remove_feature:
-    def __init__(self):
-        pass
-    def __mul__(self, x):
-        return None
-    def __rmul__(self, x):
-        return None
-                    
-                    
 class RL_Agents_Coord:
-    def __init__(self, building_ids, buildings_states_actions, building_info, observation_spaces = None, action_spaces = None, hidden_dim=[400,300], discount=0.99, tau=5e-3, lr=3e-4, batch_size=100, replay_buffer_capacity = 1e5, regression_buffer_capacity = 3e4, start_training = None, exploration_period = None, start_regression = None, information_sharing = False, pca_compression = 1., action_scaling_coef = 1., reward_scaling = 1., update_per_step = 1, iterations_as = 2, safe_exploration = False, seed = 0):
+    def __init__(self, building_ids, buildings_states_actions, building_info, \
+        observation_spaces = None, action_spaces = None, hidden_dim=[400,300], \
+            discount=0.99, tau=5e-3, lr=3e-4, batch_size=100, \
+                replay_buffer_capacity = 1e5, regression_buffer_capacity = 3e4,\
+                     start_training = None, exploration_period = None, \
+                         start_regression = None, information_sharing = False, \
+                             pca_compression = 1., action_scaling_coef = 1.,\
+                                  reward_scaling = 1., update_per_step = 1, \
+                                      iterations_as = 2, safe_exploration = False, seed = 0):
         
+
         assert start_training > start_regression, 'start_training must be greater than start_regression'
         
         with open(buildings_states_actions) as json_file:
@@ -263,6 +85,8 @@ class RL_Agents_Coord:
         
         self.energy_size_coef = {}
         self.total_coef = 0
+
+        # tracks information energy but I am not sure what they are doing in detail...
         for uid, info in building_info.items():
             _coef = info['Annual_DHW_demand (kWh)']/.9 + info['Annual_cooling_demand (kWh)']/3.5 + info['Annual_nonshiftable_electrical_demand (kWh)'] - info['solar_power_capacity (kW)']*8760/6.0
             self.energy_size_coef[uid] = max(.3*(_coef + info['solar_power_capacity (kW)']*8760/6.0), _coef)/8760
@@ -272,7 +96,10 @@ class RL_Agents_Coord:
             self.energy_size_coef[uid] = self.energy_size_coef[uid]/self.total_coef
         
         
+        # creating empty dictionary for replay buffer and neural network on each building to track
         self.replay_buffer, self.reg_buffer, self.soft_q_net1, self.soft_q_net2, self.target_soft_q_net1, self.target_soft_q_net2, self.policy_net, self.soft_q_optimizer1, self.soft_q_optimizer2, self.policy_optimizer, self.target_entropy, self.alpha, self.log_alpha, self.alpha_optimizer, self.pca, self.encoder, self.encoder_reg, self.state_estimator, self.norm_mean, self.norm_std, self.r_norm_mean, self.r_norm_std, self.log_pi_tracker = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+        
+        # setting loss fuction and encoder. However, encoder or state estimator is not needed
         for uid in building_ids:
             self.state_estimator[uid] = GradientBoostingRegressor()
             self.critic1_loss_[uid], self.critic2_loss_[uid], self.actor_loss_[uid], self.alpha_loss_[uid], self.alpha_[uid], self.q_tracker[uid], self.log_pi_tracker[uid] = [], [], [], [], [], [], []
@@ -367,7 +194,7 @@ class RL_Agents_Coord:
             self.replay_buffer[uid] = ReplayBuffer(int(replay_buffer_capacity))
             self.reg_buffer[uid] = RegressionBuffer(int(regression_buffer_capacity))
             
-            # init networks
+            # init networks for each policy
             self.soft_q_net1[uid] = SoftQNetwork(state_dim, action_dim, hidden_dim).to(self.device)
             self.soft_q_net2[uid] = SoftQNetwork(state_dim, action_dim, hidden_dim).to(self.device)
 
