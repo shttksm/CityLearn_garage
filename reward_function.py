@@ -26,7 +26,7 @@ class reward_function_ma:
         
         # return list(np.sign(electricity_demand)*0.01*(np.array(np.abs(electricity_demand))**2 * max(0, total_electricity_demand)))
         
-        Single-agent reward
+        # Single-agent reward
         reward_ = np.array(electricity_demand)**3.0
         reward_[reward_>0] = 0
         return list(reward_)
