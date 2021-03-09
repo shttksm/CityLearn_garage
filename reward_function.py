@@ -17,19 +17,19 @@ class reward_function_ma:
 
     # Electricity_demand contains negative values when the building consumes more electricity than it generates
     def get_rewards(self, electricity_demand):  
-        electricity_demand = np.float32(electricity_demand)
-        total_electricity_demand = 0
-        for e in electricity_demand:
-            total_electricity_demand += -e
+        # electricity_demand = np.float32(electricity_demand)
+        # total_electricity_demand = 0
+        # for e in electricity_demand:
+        #     total_electricity_demand += -e
             
-        electricity_demand = np.array(electricity_demand)
+        # electricity_demand = np.array(electricity_demand)
         
-        return list(np.sign(electricity_demand)*0.01*(np.array(np.abs(electricity_demand))**2 * max(0, total_electricity_demand)))
+        # return list(np.sign(electricity_demand)*0.01*(np.array(np.abs(electricity_demand))**2 * max(0, total_electricity_demand)))
         
-        # Single-agent reward
-        # reward_ = np.array(electricity_demand)**3.0
-        # reward_[reward_>0] = 0
-        # return list(reward_)
+        Single-agent reward
+        reward_ = np.array(electricity_demand)**3.0
+        reward_[reward_>0] = 0
+        return list(reward_)
     
       
 # Reward function for the single-agent (centralized) agent
