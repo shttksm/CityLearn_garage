@@ -425,8 +425,9 @@ class CityLearn(gym.Env):
                                 s.append(building.cooling_storage._soc/building.cooling_storage.capacity)
                             elif state_name == 'dhw_storage_soc':
                                 s.append(building.dhw_storage._soc/building.dhw_storage.capacity)
+
+            rewards = reward_function_sa(self.buildings_net_electricity_demand, self.state, actions)
             self.state = np.array(s)
-            rewards = reward_function_sa(self.buildings_net_electricity_demand)
             self.cumulated_reward_episode += rewards
             
         else:
