@@ -43,6 +43,6 @@ def reward_function_sa(electricity_demand, state, action):
 
     action_rbc = np.array(action_rbc)
  
-    reward_ = ((action - action_rbc) ** -2).sum()
+    reward_ = - np.linalg.norm(action - action_rbc)
 
     return reward_
