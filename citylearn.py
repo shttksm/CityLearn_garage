@@ -310,6 +310,8 @@ class CityLearn(gym.Env):
         elec_consumption_cooling_total = 0
         elec_consumption_appliances = 0
         elec_generation = 0
+        # store actions to pass it to reward_function_sa by Shota
+        tmp_actions = actions
         
         if self.central_agent:
             # If the agent is centralized, all the actions for all the buildings are provided as an ordered list of numbers. The order corresponds to the order of the buildings as they appear on the file building_attributes.json, and only considering the buildings selected for the simulation by the user (building_ids).
@@ -426,7 +428,7 @@ class CityLearn(gym.Env):
                             elif state_name == 'dhw_storage_soc':
                                 s.append(building.dhw_storage._soc/building.dhw_storage.capacity)
 
-            rewards = reward_function_sa(self.buildings_net_electricity_demand, self.state, actions)
+            rewards = reward_function_sa(self.buildings_net_electricity_demand, self.state, tmp_actions)
             self.state = np.array(s)
             self.cumulated_reward_episode += rewards
             
