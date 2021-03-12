@@ -5,7 +5,7 @@ import pandas as pd
 import json
 from gym import spaces
 from energy_models import HeatPump, ElectricHeater, EnergyStorage, Building
-from reward_function import reward_function_sa, reward_function_ma
+from reward_function_ import reward_function_sa, reward_function_ma
 from pathlib import Path
 gym.logger.set_level(40)
 
@@ -428,7 +428,7 @@ class CityLearn(gym.Env):
                             elif state_name == 'dhw_storage_soc':
                                 s.append(building.dhw_storage._soc/building.dhw_storage.capacity)
 
-            rewards = reward_function_sa(self.buildings_net_electricity_demand, self.state, tmp_actions)
+            rewards = reward_function_sa(self.buildings_net_electricity_demand)
             self.state = np.array(s)
             self.cumulated_reward_episode += rewards
             
