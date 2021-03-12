@@ -33,16 +33,13 @@ class reward_function_ma:
     
       
 # Reward function for the single-agent (centralized) agent
-def reward_function_sa(electricity_demand, state, action):
-    hour = state[2]
-    action_rbc = None
-    if hour >= 9 and hour <= 21:
-        action_rbc = [-0.08] * len(action)
-    else:
-        action_rbc = [0.091] * len(action)
+def reward_function_sa(electricity_demand):
 
-    action_rbc = np.array(action_rbc)
- 
-    reward_ = - np.linalg.norm(action - action_rbc)
-
+    # reward_ = -np.array(electricity_demand).sum()
+    # reward_ = max(0, reward_)
+    # reward_ = reward_**3.0
+    reward_ = np.array(electricity_demand).sum()
+    #reward_ = min(0, reward_)
+    reward_ = reward_ ** 3.0
+    
     return reward_
